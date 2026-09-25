@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "period": "100ms",
+  "channels": [
+    { "id": "temperature", "minValue": -40, "maxValue": 125, "required": true },
+    { "id": "pressure",    "minValue": 0,   "maxValue": 10,  "required": true },
+    { "id": "vibration",   "minValue": 0,   "maxValue": 50,  "required": false }
+  ],
+  "threshold": {
+    "temperature": 90,
+    "pressure": 8
+  },
+  "safety": {
+    "dataTimeout": "500ms",
+    "consecutiveFaults": 3,
+    "decisionDeadline": "80ms",
+    "recoveryStableRuns": 5,
+    "safeOutput": 0
+  }
+}
