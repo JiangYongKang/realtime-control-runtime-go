@@ -84,3 +84,56 @@ func TestRealTickerFires(t *testing.T) {
 		t.Fatal("real ticker did not fire")
 	}
 }
+
+func TestFakeTimerFiresOnDueAdvance(t *testing.T) {
+	fc := NewFake(time.Unix(0, 0))
+	tm := fc.NewTimer(50 * time.Millisecond)
+
+	fc.Advance(49 * time.Millisecond)
+	select {
+	case <-tm.Ch():
+		t.Fatal("timer fired before deadline")
+	default:
+	}
+
+	fc.Advance(1 * time.Millisecond)
+	select {
+	case got := <-tm.Ch():
+		if !got.Equal(time.Unix(0, int64(50*time.Millisecond))) {
+			t.Fatalf("timer fire time = %v", got)
+		}
+	default:
+		t.Fatal("timer did not fire when due")
+	}
+
+	// One-shot: further advances deliver nothing more.
+	fc.Advance(time.Second)
+	select {
+	case <-tm.Ch():
+		t.Fatal("one-shot timer fired twice")
+	default:
+	}
+}
+
+func TestFakeTimerStop(t *testing.T) {
+	fc := NewFake(time.Unix(0, 0))
+	tm := fc.NewTimer(10 * time.Millisecond)
+	tm.Stop()
+	fc.Advance(50 * time.Millisecond)
+	select {
+	case <-tm.Ch():
+		t.Fatal("stopped timer fired")
+	default:
+	}
+}
+
+func TestRealTimerFires(t *testing.T) {
+	rc := Real()
+	tm := rc.NewTimer(5 * time.Millisecond)
+	defer tm.Stop()
+	select {
+	case <-tm.Ch():
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("real timer did not fire")
+	}
+}

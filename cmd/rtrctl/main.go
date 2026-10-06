@@ -37,8 +37,13 @@ func main() {
 	rt, err := runtime.New(cfg, runtime.Options{
 		Log: logger,
 		DecisionDrain: func(d control.Decision) {
-			if d.Previous != d.State {
+			switch {
+			case d.Previous != d.State:
 				logger.Printf("STATE TRANSITION %s -> %s (%s)", d.Previous, d.State, d.Detail)
+			case d.ForcedSafe:
+				logger.Printf("FORCED SAFE: runtime overrode the custom judge (%s)", d.Detail)
+			case d.Warmup:
+				logger.Printf("WARMUP: %s", d.Detail)
 			}
 		},
 	})

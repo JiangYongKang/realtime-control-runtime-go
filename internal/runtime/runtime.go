@@ -41,6 +41,12 @@ type Options struct {
 	Sources map[string]sensor.Source
 	// DecisionDrain, if set, receives every emitted decision.
 	DecisionDrain func(control.Decision)
+	// Judge, if set, replaces the default control policy with a local
+	// custom judgment. The runtime bounds every invocation by
+	// safety.judge_timeout and forces SAFE itself when the judgment is
+	// late; abandoned late verdicts are discarded and never revise a
+	// conclusion already issued.
+	Judge control.Judge
 }
 
 // simFactory builds a simulated source for each channel config.
@@ -84,6 +90,10 @@ func New(cfg *config.Config, opts Options) (*Runtime, error) {
 		return nil, err
 	}
 	ctl := control.New(mgr.Current, clk, lg)
+	if opts.Judge != nil {
+		ctl.SetJudge(opts.Judge)
+		lg.Printf("runtime: custom control judge registered; per-tick budget %s", mgr.Current().Safety.EffectiveJudgeTimeout())
+	}
 	return &Runtime{
 		Clk:           clk,
 		CfgMgr:        mgr,

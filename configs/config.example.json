@@ -7,7 +7,11 @@
       "max_lag": "250ms",
       "min_value": -40,
       "max_value": 120,
-      "sim": { "base": 22.5, "amplitude": 1.5, "period_s": 4 }
+      "sim": {
+        "base": 22.5,
+        "amplitude": 1.5,
+        "period_s": 4
+      }
     },
     {
       "id": "pressure-b",
@@ -15,13 +19,23 @@
       "max_lag": "500ms",
       "min_value": 0,
       "max_value": 10,
-      "sim": { "base": 5.0, "amplitude": 0.4, "period_s": 8, "fail_every_n": 0 }
+      "sim": {
+        "base": 5.0,
+        "amplitude": 0.4,
+        "period_s": 8,
+        "fail_every_n": 0
+      }
     }
   ],
-  "threshold": { "warn_low": 0, "warn_high": 100 },
+  "threshold": {
+    "warn_low": 0,
+    "warn_high": 100
+  },
   "safety": {
     "control_period": "100ms",
     "decision_deadline": "350ms",
+    "judge_timeout": "100ms",
+    "warmup_grace": "500ms",
     "max_consecutive_err": 2,
     "recover_good_ticks": 3
   }

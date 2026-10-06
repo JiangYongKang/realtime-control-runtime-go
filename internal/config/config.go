@@ -43,12 +43,26 @@ type ThresholdCfg struct {
 	WarnHigh float64 `json:"warn_high"`
 }
 
+// MaxWarmupGrace caps the configurable warm-up grace window so a
+// misconfiguration cannot suspend safety supervision for unbounded time.
+const MaxWarmupGrace = time.Minute
+
 // SafetyCfg configures deadline monitoring and safe-state transitions.
 type SafetyCfg struct {
 	// ControlPeriod is the period of the control decision loop; > 0.
 	ControlPeriod time.Duration `json:"control_period"`
 	// DecisionDeadline bounds the age of the data a decision may use.
 	DecisionDeadline time.Duration `json:"decision_deadline"`
+	// JudgeTimeout bounds a single custom-judge invocation. Zero selects
+	// the default of ControlPeriod; an explicit value must be > 0 and
+	// <= ControlPeriod so one judgment can never stall the control loop
+	// past its own tick.
+	JudgeTimeout time.Duration `json:"judge_timeout"`
+	// WarmupGrace is the optional grace window after start/reload during
+	// which missing first samples yield a distinguishable "warmup"
+	// conclusion instead of SAFE. Zero disables it (legacy behaviour).
+	// Must be >= 0 and <= MaxWarmupGrace.
+	WarmupGrace time.Duration `json:"warmup_grace"`
 	// MaxConsecutiveErr tolerates transient source errors before
 	// entering the safe state; must be >= 1.
 	MaxConsecutiveErr int `json:"max_consecutive_err"`
@@ -57,6 +71,15 @@ type SafetyCfg struct {
 	// required to exceed MaxConsecutiveErr so a single jitter cannot
 	// cause flapping.
 	RecoverGoodTicks int `json:"recover_good_ticks"`
+}
+
+// EffectiveJudgeTimeout resolves the configured judge timeout, defaulting
+// a zero value to the control period (one full tick budget).
+func (s SafetyCfg) EffectiveJudgeTimeout() time.Duration {
+	if s.JudgeTimeout <= 0 {
+		return s.ControlPeriod
+	}
+	return s.JudgeTimeout
 }
 
 // Config is one immutable configuration version.
@@ -92,6 +115,8 @@ var (
 	ErrBadRecoverTicks = errors.New("config: recover_good_ticks must be >= 1")
 	ErrFlapRisk        = errors.New("config: recover_good_ticks must be > max_consecutive_err to prevent flapping")
 	ErrBadSim          = errors.New("config: sim fault parameters must be >= 0, and period_s > 0 when amplitude != 0")
+	ErrBadJudgeTimeout = errors.New("config: judge_timeout must be > 0 and <= control_period when set")
+	ErrBadWarmupGrace  = errors.New("config: warmup_grace must be >= 0 and <= MaxWarmupGrace")
 	ErrVersionRewind   = errors.New("config: new version must be greater than current version")
 )
 
@@ -135,6 +160,13 @@ func Validate(c *Config) error {
 	}
 	if c.Safety.DecisionDeadline <= 0 {
 		return ErrBadDeadline
+	}
+	if c.Safety.JudgeTimeout != 0 &&
+		(c.Safety.JudgeTimeout < 0 || c.Safety.JudgeTimeout > c.Safety.ControlPeriod) {
+		return ErrBadJudgeTimeout
+	}
+	if c.Safety.WarmupGrace < 0 || c.Safety.WarmupGrace > MaxWarmupGrace {
+		return ErrBadWarmupGrace
 	}
 	if c.Safety.MaxConsecutiveErr < 1 {
 		return ErrBadErrorCount

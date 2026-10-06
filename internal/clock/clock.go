@@ -14,6 +14,9 @@ type Clock interface {
 	Now() time.Time
 	// NewTicker creates a ticker with the given positive period.
 	NewTicker(d time.Duration) Ticker
+	// NewTimer creates a one-shot timer firing after the given
+	// positive duration.
+	NewTimer(d time.Duration) Timer
 }
 
 // Ticker is a minimal ticker handle.
@@ -22,6 +25,14 @@ type Ticker interface {
 	// consumer cannot keep up, mirroring time.Ticker semantics.
 	Ch() <-chan time.Time
 	// Stop releases the ticker; drained ticks are not delivered.
+	Stop()
+}
+
+// Timer is a minimal one-shot timer handle.
+type Timer interface {
+	// Ch delivers the single fire time.
+	Ch() <-chan time.Time
+	// Stop prevents the timer from firing.
 	Stop()
 }
 
@@ -48,6 +59,18 @@ type realTicker struct{ t *time.Ticker }
 func (r *realTicker) Ch() <-chan time.Time { return r.t.C }
 func (r *realTicker) Stop()                { r.t.Stop() }
 
+func (realClock) NewTimer(d time.Duration) Timer {
+	if d <= 0 {
+		panic("clock: non-positive timer duration")
+	}
+	return &realTimer{t: time.NewTimer(d)}
+}
+
+type realTimer struct{ t *time.Timer }
+
+func (r *realTimer) Ch() <-chan time.Time { return r.t.C }
+func (r *realTimer) Stop()                { r.t.Stop() }
+
 // ---------------------------------------------------------------------------
 // Fake clock
 // ---------------------------------------------------------------------------
@@ -73,6 +96,7 @@ type FakeClock struct {
 	mu      sync.Mutex
 	now     time.Time
 	tickers []*fakeTicker
+	timers  []*fakeTimer
 }
 
 // NewFake builds a fake clock anchored at start.
@@ -121,6 +145,46 @@ func (f *FakeClock) NewTicker(d time.Duration) Ticker {
 	return t
 }
 
+// fakeTimer is a one-shot fake timer fired by Advance.
+type fakeTimer struct {
+	f    *FakeClock
+	ch   chan time.Time
+	at   time.Time
+	stop bool
+}
+
+func (t *fakeTimer) Ch() <-chan time.Time { return t.ch }
+func (t *fakeTimer) Stop() {
+	t.f.mu.Lock()
+	t.stop = true
+	t.f.mu.Unlock()
+}
+
+// NewTimer registers a one-shot timer firing d after the current fake time.
+// If that fire time is already due at registration, it is delivered
+// immediately so it cannot be lost to a scheduling race.
+func (f *FakeClock) NewTimer(d time.Duration) Timer {
+	if d <= 0 {
+		panic("clock: non-positive timer duration")
+	}
+	f.mu.Lock()
+	now := f.now
+	t := &fakeTimer{
+		f:  f,
+		ch: make(chan time.Time, 1),
+		at: now.Add(d),
+	}
+	f.timers = append(f.timers, t)
+	if !t.at.After(now) {
+		select {
+		case t.ch <- t.at:
+		default:
+		}
+	}
+	f.mu.Unlock()
+	return t
+}
+
 // Advance moves the clock forward by d and fires due tickers. Tickers fire at
 // most once per Advance call (at the final time), and the tick is dropped if
 // the consumer has not drained the previous one — the same drop policy as a
@@ -147,12 +211,32 @@ func (f *FakeClock) Advance(d time.Duration) {
 			fires = append(fires, fire{t, fireAt})
 		}
 	}
+	// Collect due one-shot timers; fired timers are dropped from the list.
+	kept := f.timers[:0]
+	var timerFires []*fakeTimer
+	for _, tm := range f.timers {
+		switch {
+		case tm.stop:
+			// Stopped: release the slot.
+		case !tm.at.After(now):
+			timerFires = append(timerFires, tm)
+		default:
+			kept = append(kept, tm)
+		}
+	}
+	f.timers = kept
 	f.mu.Unlock()
 	for _, fr := range fires {
 		select {
 		case fr.t.ch <- fr.fireAt:
 		default:
 			// Consumer slow: drop the tick like time.Ticker.
+		}
+	}
+	for _, tm := range timerFires {
+		select {
+		case tm.ch <- tm.at:
+		default:
 		}
 	}
 }

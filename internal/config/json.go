@@ -25,6 +25,8 @@ type jsonConfig struct {
 	Safety    struct {
 		ControlPeriod     string `json:"control_period"`
 		DecisionDeadline  string `json:"decision_deadline"`
+		JudgeTimeout      string `json:"judge_timeout"`
+		WarmupGrace       string `json:"warmup_grace"`
 		MaxConsecutiveErr int    `json:"max_consecutive_err"`
 		RecoverGoodTicks  int    `json:"recover_good_ticks"`
 	} `json:"safety"`
@@ -39,6 +41,15 @@ func parseDur(name, s string) (time.Duration, error) {
 		return 0, fmt.Errorf("config: invalid %s %q: %w", name, s, err)
 	}
 	return d, nil
+}
+
+// parseDurOpt parses an optional duration: empty decodes as 0 so legacy
+// configurations that predate the field keep their default behaviour.
+func parseDurOpt(name, s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+	return parseDur(name, s)
 }
 
 // DecodeJSON reads and validates a JSON configuration stream.
@@ -78,6 +89,12 @@ func DecodeJSON(r io.Reader) (*Config, error) {
 	if cfg.Safety.DecisionDeadline, err = parseDur("decision_deadline", jc.Safety.DecisionDeadline); err != nil {
 		return nil, err
 	}
+	if cfg.Safety.JudgeTimeout, err = parseDurOpt("judge_timeout", jc.Safety.JudgeTimeout); err != nil {
+		return nil, err
+	}
+	if cfg.Safety.WarmupGrace, err = parseDurOpt("warmup_grace", jc.Safety.WarmupGrace); err != nil {
+		return nil, err
+	}
 	cfg.Safety.MaxConsecutiveErr = jc.Safety.MaxConsecutiveErr
 	cfg.Safety.RecoverGoodTicks = jc.Safety.RecoverGoodTicks
 	if err := Validate(cfg); err != nil {
@@ -94,6 +111,8 @@ func EncodeJSON(w io.Writer, cfg *Config) error {
 	}
 	jc.Safety.ControlPeriod = cfg.Safety.ControlPeriod.String()
 	jc.Safety.DecisionDeadline = cfg.Safety.DecisionDeadline.String()
+	jc.Safety.JudgeTimeout = cfg.Safety.JudgeTimeout.String()
+	jc.Safety.WarmupGrace = cfg.Safety.WarmupGrace.String()
 	jc.Safety.MaxConsecutiveErr = cfg.Safety.MaxConsecutiveErr
 	jc.Safety.RecoverGoodTicks = cfg.Safety.RecoverGoodTicks
 	for _, ch := range cfg.Channels {
