@@ -57,7 +57,24 @@ type SafetyCfg struct {
 	// required to exceed MaxConsecutiveErr so a single jitter cannot
 	// cause flapping.
 	RecoverGoodTicks int `json:"recover_good_ticks"`
+	// JudgeTimeout bounds a single evaluation of a locally registered
+	// custom decision function. Zero means "no custom judge configured";
+	// when a judge is registered the runtime substitutes ControlPeriod at
+	// startup. When set it must be > 0 and no larger than ControlPeriod so
+	// one slow evaluation can never hold up the control loop.
+	JudgeTimeout time.Duration `json:"judge_timeout"`
+	// WarmupGrace is the grace window after startup or a configuration
+	// reload during which a "no data yet" verdict is reported as the
+	// distinguishable warming state instead of immediately entering the
+	// safe state. Zero disables warm-up (the legacy behaviour: missing
+	// data enters SAFE at once). It must be <= MaxWarmupGrace; real
+	// anomalies and threshold violations are never covered by the grace.
+	WarmupGrace time.Duration `json:"warmup_grace"`
 }
+
+// MaxWarmupGrace caps the configurable warm-up window so misconfiguration
+// can never postpone safe-state entry indefinitely.
+const MaxWarmupGrace = 30 * time.Second
 
 // Config is one immutable configuration version.
 type Config struct {
@@ -91,6 +108,8 @@ var (
 	ErrBadErrorCount   = errors.New("config: max_consecutive_err must be >= 1")
 	ErrBadRecoverTicks = errors.New("config: recover_good_ticks must be >= 1")
 	ErrFlapRisk        = errors.New("config: recover_good_ticks must be > max_consecutive_err to prevent flapping")
+	ErrBadJudgeTimeout = errors.New("config: judge_timeout must be > 0 and <= control_period when set")
+	ErrBadWarmupGrace  = errors.New("config: warmup_grace must be >= 0 and <= 30s")
 	ErrBadSim          = errors.New("config: sim fault parameters must be >= 0, and period_s > 0 when amplitude != 0")
 	ErrVersionRewind   = errors.New("config: new version must be greater than current version")
 )
@@ -144,6 +163,15 @@ func Validate(c *Config) error {
 	}
 	if c.Safety.RecoverGoodTicks <= c.Safety.MaxConsecutiveErr {
 		return ErrFlapRisk
+	}
+	// judge_timeout is optional (0 = unset); a set value must fit in one
+	// control period so the loop deadline is always honoured.
+	if c.Safety.JudgeTimeout < 0 ||
+		(c.Safety.JudgeTimeout > 0 && c.Safety.JudgeTimeout > c.Safety.ControlPeriod) {
+		return ErrBadJudgeTimeout
+	}
+	if c.Safety.WarmupGrace < 0 || c.Safety.WarmupGrace > MaxWarmupGrace {
+		return ErrBadWarmupGrace
 	}
 	return nil
 }

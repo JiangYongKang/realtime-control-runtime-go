@@ -41,6 +41,12 @@ type Options struct {
 	Sources map[string]sensor.Source
 	// DecisionDrain, if set, receives every emitted decision.
 	DecisionDrain func(control.Decision)
+	// Judge optionally replaces the controller's built-in decision policy
+	// with a locally registered function. The runtime bounds every
+	// evaluation by safety.judge_timeout (or the control period when
+	// unset): a slow or non-returning judge is abandoned and the runtime
+	// asserts safe itself; its late result is discarded.
+	Judge control.Judge
 }
 
 // simFactory builds a simulated source for each channel config.
@@ -83,7 +89,12 @@ func New(cfg *config.Config, opts Options) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctl := control.New(mgr.Current, clk, lg)
+	var ctl *control.Controller
+	if opts.Judge != nil {
+		ctl = control.NewWithJudge(mgr.Current, clk, lg, opts.Judge, mgr.Current().Safety.JudgeTimeout)
+	} else {
+		ctl = control.New(mgr.Current, clk, lg)
+	}
 	return &Runtime{
 		Clk:           clk,
 		CfgMgr:        mgr,

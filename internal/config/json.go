@@ -27,12 +27,27 @@ type jsonConfig struct {
 		DecisionDeadline  string `json:"decision_deadline"`
 		MaxConsecutiveErr int    `json:"max_consecutive_err"`
 		RecoverGoodTicks  int    `json:"recover_good_ticks"`
+		JudgeTimeout      string `json:"judge_timeout"`
+		WarmupGrace       string `json:"warmup_grace"`
 	} `json:"safety"`
 }
 
 func parseDur(name, s string) (time.Duration, error) {
 	if s == "" {
 		return 0, fmt.Errorf("config: %s must not be empty", name)
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("config: invalid %s %q: %w", name, s, err)
+	}
+	return d, nil
+}
+
+// parseOptionalDur decodes an optional duration field; an absent or empty
+// field means zero (legacy default), an unparsable value is still rejected.
+func parseOptionalDur(name, s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {
@@ -80,6 +95,12 @@ func DecodeJSON(r io.Reader) (*Config, error) {
 	}
 	cfg.Safety.MaxConsecutiveErr = jc.Safety.MaxConsecutiveErr
 	cfg.Safety.RecoverGoodTicks = jc.Safety.RecoverGoodTicks
+	if cfg.Safety.JudgeTimeout, err = parseOptionalDur("judge_timeout", jc.Safety.JudgeTimeout); err != nil {
+		return nil, err
+	}
+	if cfg.Safety.WarmupGrace, err = parseOptionalDur("warmup_grace", jc.Safety.WarmupGrace); err != nil {
+		return nil, err
+	}
 	if err := Validate(cfg); err != nil {
 		return nil, err
 	}
@@ -96,6 +117,8 @@ func EncodeJSON(w io.Writer, cfg *Config) error {
 	jc.Safety.DecisionDeadline = cfg.Safety.DecisionDeadline.String()
 	jc.Safety.MaxConsecutiveErr = cfg.Safety.MaxConsecutiveErr
 	jc.Safety.RecoverGoodTicks = cfg.Safety.RecoverGoodTicks
+	jc.Safety.JudgeTimeout = cfg.Safety.JudgeTimeout.String()
+	jc.Safety.WarmupGrace = cfg.Safety.WarmupGrace.String()
 	for _, ch := range cfg.Channels {
 		jc.Channels = append(jc.Channels, jsonChannel{
 			ID:       ch.ID,

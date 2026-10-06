@@ -23,6 +23,8 @@
     "control_period": "100ms",
     "decision_deadline": "350ms",
     "max_consecutive_err": 2,
-    "recover_good_ticks": 3
+    "recover_good_ticks": 3,
+    "judge_timeout": "80ms",
+    "warmup_grace": "500ms"
   }
 }
